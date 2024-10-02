@@ -7,8 +7,9 @@ use alloy_rlp::{Buf, Decodable as _, Header};
 use derive_more::{AsRef, Deref};
 use reth_primitives::{
     optimism_deposit_tx_signature,
+    traits::SignedTransaction,
     transaction::{recover_signer, recover_signer_unchecked, with_eip155_parity},
-    SignedTransaction, Transaction, TxDeposit, TxType,
+    Transaction, TxDeposit, TxType,
 };
 use serde::{Deserialize, Serialize};
 
