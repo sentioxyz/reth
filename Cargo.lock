@@ -8178,6 +8178,7 @@ dependencies = [
  "arbitrary",
  "derive_more 1.0.0",
  "modular-bitfield",
+ "op-alloy-consensus",
  "proptest",
  "proptest-arbitrary-interop",
  "rand 0.8.5",

@@ -26,6 +26,9 @@ alloy-consensus.workspace = true
 alloy-rlp.workspace = true
 alloy-eips.workspace = true
 
+# op
+op-alloy-consensus.workspace = true
+
 # codecs
 modular-bitfield = { workspace = true, optional = true }
 zstd = { workspace = true, optional = true }
@@ -33,7 +36,7 @@ serde.workspace = true
 arbitrary = { workspace = true, features = ["derive"], optional = true }
 
 # misc
-derive_more = { workspace = true, features = ["deref"] }
+derive_more = { workspace = true, features = ["deref", "from", "constructor"] }
 proptest = { workspace = true, optional = true }
 rand = { workspace = true, optional = true }
 

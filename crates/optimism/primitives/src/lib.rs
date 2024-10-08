@@ -13,4 +13,5 @@ pub mod bedrock;
 pub mod signature;
 pub mod signed_transaction;
 
+pub use signature::OpSignature;
 pub use signed_transaction::OpTransactionSigned;
