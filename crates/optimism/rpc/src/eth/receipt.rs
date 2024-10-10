@@ -261,7 +261,7 @@ impl OpReceiptBuilder {
             TxType::Legacy => OpReceiptEnvelope::<Log>::Legacy(receipt_with_bloom),
             TxType::Eip2930 => OpReceiptEnvelope::<Log>::Eip2930(receipt_with_bloom),
             TxType::Eip1559 => OpReceiptEnvelope::<Log>::Eip1559(receipt_with_bloom),
-            TxType::Eip4844 => OpReceiptEnvelope::<Log>::Eip4844(receipt_with_bloom),
+            TxType::Eip4844 => unimplemented!(),
             TxType::Eip7702 => {
                 unimplemented!("not implemented yet for OpReceiptEnvelope")
             }
