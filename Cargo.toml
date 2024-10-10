@@ -142,6 +142,7 @@ members = [
     "examples/node-event-hooks/",
     "examples/polygon-p2p/",
     "examples/rpc-db/",
+    "examples/sentio-tracer/",
     "examples/stateful-precompile/",
     "examples/txpool-tracing/",
     "testing/ef-tests/",

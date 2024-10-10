@@ -2925,6 +2925,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "example-sentio-tracer"
+version = "0.0.0"
+dependencies = [
+ "alloy-genesis",
+ "alloy-network",
+ "alloy-primitives",
+ "alloy-rpc-types-trace",
+ "eyre",
+ "futures-util",
+ "reth",
+ "reth-chainspec",
+ "reth-db",
+ "reth-node-core",
+ "reth-node-ethereum",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "example-stateful-precompile"
 version = "0.0.0"
 dependencies = [
