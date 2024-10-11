@@ -126,6 +126,8 @@ impl PruningArgs {
                     receipts_log_filter: Default::default(),
                 },
             }
+        } else {
+            return None;
         }
 
         // Override with any explicitly set prune.* flags.
