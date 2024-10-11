@@ -120,6 +120,8 @@ impl PruningArgs {
                     ),
                 },
             }
+        } else {
+            return None;
         }
 
         // Override with any explicitly set prune.* flags.
