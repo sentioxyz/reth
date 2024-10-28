@@ -412,7 +412,7 @@ revm = { version = "14.0.3", features = [
     "secp256k1",
     "blst",
 ], default-features = false }
-revm-inspectors = "0.8.1"
+revm-inspectors = { version = "0.8.1", features = ["serde"] }
 revm-primitives = { version = "10.0.0", features = [
     "std",
 ], default-features = false }
