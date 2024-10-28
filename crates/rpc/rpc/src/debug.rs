@@ -466,6 +466,21 @@ where
                             .await?;
                         return Ok(frame);
                     }
+                    GethDebugBuiltInTracerType::SentioRethRawTracer => {
+                        let inspector_cfg = TracingInspectorConfig::default_geth().set_record_logs(true).set_memory_snapshots(true);
+                        let mut inspector = TracingInspector::new(inspector_cfg);
+                        let frame = self
+                            .inner
+                            .eth_api
+                            .spawn_with_call_at(call, at, overrides, move |db, env| {
+                                let (_, env) = this.eth_api().inspect(db, env, &mut inspector)?;
+                                let tracing_inspector = inspector.with_transaction_gas_limit(env.tx.gas_limit);
+                                let value = serde_json::to_value(tracing_inspector.into_traces().into_nodes()).unwrap();
+                                Ok(GethTrace::SentioRethRawTracer(value))
+                            })
+                            .await?;
+                        return Ok(frame);
+                    }
                 },
                 #[cfg(not(feature = "js-tracer"))]
                 GethDebugTracerType::JsTracer(_) => {
@@ -927,6 +942,15 @@ where
                             .map_err(|e| EthApiError::EvmCustom(e.to_string()))?;
 
                         Ok((trace.into(), res.state))
+                    }
+                    GethDebugBuiltInTracerType::SentioRethRawTracer => {
+                        let inspector_cfg = TracingInspectorConfig::default_geth().set_record_logs(true).set_memory_snapshots(true);
+                        let mut inspector = TracingInspector::new(inspector_cfg);
+                        let (res, env) = self.eth_api().inspect(db, env, &mut inspector)?;
+
+                        let tracing_inspector = inspector.with_transaction_gas_limit(env.tx.gas_limit);
+                        let value = serde_json::to_value(tracing_inspector.into_traces().into_nodes()).unwrap();
+                        Ok((GethTrace::SentioRethRawTracer(value), res.state))
                     }
                 },
                 #[cfg(not(feature = "js-tracer"))]
