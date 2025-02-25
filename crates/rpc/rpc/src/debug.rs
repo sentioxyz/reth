@@ -425,20 +425,20 @@ where
                         let frame = self
                             .inner
                             .eth_api
-                            .spawn_with_call_at(call, at, overrides, move |mut db, env| {
-                                let bn = env.block.number.to::<u64>();
+                            .spawn_with_call_at(call, at, overrides, move |mut db, evm_env, tx_env| {
+                                let bn = evm_env.block_env.number.to::<u64>();
                                 let block_hash = db.block_hash(bn).map_err(|_| EthApiError::InternalEthError)?;
-                                let (res, env) = this.eth_api().inspect(db, env, &mut inspector)?;
+                                let (res, (_, tx_env)) = this.eth_api().inspect(db, evm_env, tx_env, &mut inspector)?;
 
                                 let receipt = SentioReceipt {
-                                    nonce: Some(env.tx.nonce.unwrap_or(0)),
+                                    nonce: Some(tx_env.nonce().unwrap_or(0)),
                                     block_number: Some(U64::from(bn)),
                                     block_hash: Some(block_hash),
-                                    gas_price: Some(env.tx.gas_price),
+                                    gas_price: Some(tx_env.gas_price()),
                                     transaction_index: Some(0),
                                     tx_hash: None,
                                 };
-                                let tracing_inspector = inspector.with_transaction_gas_limit(env.tx.gas_limit);
+                                let tracing_inspector = inspector.with_transaction_gas_limit(tx_env.gas_limit());
                                 let trace = SentioTraceBuilder::new(tracing_inspector.into_traces().into_nodes(), sentio_tracer_config)
                                     .sentio_traces(res.result.gas_used(), Some(receipt));
                                 Ok(trace.into())
@@ -455,9 +455,10 @@ where
                         let frame = self
                             .inner
                             .eth_api
-                            .spawn_with_call_at(call, at, overrides, move |db, env| {
-                                let (res, env, db) = this.eth_api().inspect_and_return_db(db, env, &mut inspector)?;
-                                let tracing_inspector = inspector.with_transaction_gas_limit(env.tx.gas_limit);
+                            .spawn_with_call_at(call, at, overrides, move |db, evm_env, tx_env| {
+                                let db = db.0;
+                                let (res, (_, tx_env)) = this.eth_api().inspect(&mut *db, evm_env, tx_env, &mut inspector)?;
+                                let tracing_inspector = inspector.with_transaction_gas_limit(tx_env.gas_limit());
                                 let trace = SentioPrestateTraceBuilder::new(tracing_inspector.into_traces().into_nodes(), sentio_prestate_tracer_config)
                                     .sentio_prestate_traces(&res, db)
                                     .map_err(|e| EthApiError::EvmCustom(e.to_string()))?;
@@ -472,9 +473,9 @@ where
                         let frame = self
                             .inner
                             .eth_api
-                            .spawn_with_call_at(call, at, overrides, move |db, env| {
-                                let (_, env) = this.eth_api().inspect(db, env, &mut inspector)?;
-                                let tracing_inspector = inspector.with_transaction_gas_limit(env.tx.gas_limit);
+                            .spawn_with_call_at(call, at, overrides, move |db, evm_env, tx_env| {
+                                let (_, (_, tx_env)) = this.eth_api().inspect(db, evm_env, tx_env, &mut inspector)?;
+                                let tracing_inspector = inspector.with_transaction_gas_limit(tx_env.gas_limit());
                                 let value = serde_json::to_value(tracing_inspector.into_traces().into_nodes()).unwrap();
                                 Ok(GethTrace::SentioRethRawTracer(value))
                             })
@@ -897,17 +898,18 @@ where
                     }
                     GethDebugBuiltInTracerType::SentioTracer => {
                         let sentio_tracer_config = tracer_config
+                            .clone()
                             .into_sentio_config()
                             .map_err(|_| EthApiError::InvalidTracerConfig)?;
                         let inspector_cfg = TracingInspectorConfig::default_geth().set_record_logs(true).set_memory_snapshots(true);
                         let mut inspector = TracingInspector::new(inspector_cfg);
-                        let (res, env) = self.eth_api().inspect(db, env, &mut inspector)?;
+                        let (res, (evm_env, tx_env)) = self.eth_api().inspect(db, evm_env, tx_env, &mut inspector)?;
 
-                        let bn = env.block.number.to::<u64>();
+                        let bn = evm_env.block_env.number.to::<u64>();
                         let mut receipt = SentioReceipt {
-                            nonce: Some(env.tx.nonce.unwrap_or(0)),
+                            nonce: Some(tx_env.nonce().unwrap_or(0)),
                             block_number: Some(U64::from(bn)),
-                            gas_price: Some(env.tx.gas_price),
+                            gas_price: Some(tx_env.gas_price()),
                             ..Default::default()
                         };
                         if let Some(ctx) = transaction_context {
@@ -916,7 +918,7 @@ where
                             receipt.transaction_index = Some(ctx.tx_index.unwrap_or(0).as_u64());
                         }
 
-                        let tracing_inspector = inspector.with_transaction_gas_limit(env.tx.gas_limit);
+                        let tracing_inspector = inspector.with_transaction_gas_limit(tx_env.gas_limit());
                         let trace = SentioTraceBuilder::new(tracing_inspector.into_traces().into_nodes(), sentio_tracer_config)
                             .sentio_traces(res.result.gas_used(), Some(receipt));
 
@@ -924,13 +926,14 @@ where
                     }
                     GethDebugBuiltInTracerType::SentioPrestateTracer => {
                         let sentio_prestate_tracer_config = tracer_config
+                            .clone()
                             .into_sentio_prestate_config()
                             .map_err(|_| EthApiError::InvalidTracerConfig)?;
                         let inspector_cfg = TracingInspectorConfig::default_geth().set_record_logs(true).set_memory_snapshots(true);
                         let mut inspector = TracingInspector::new(inspector_cfg);
-                        let (res, env, db) = self.eth_api().inspect_and_return_db(db, env, &mut inspector)?;
+                        let (res, (_, tx_env)) = self.eth_api().inspect(&mut *db, evm_env, tx_env, &mut inspector)?;
 
-                        let tracing_inspector = inspector.with_transaction_gas_limit(env.tx.gas_limit);
+                        let tracing_inspector = inspector.with_transaction_gas_limit(tx_env.gas_limit());
                         let trace = SentioPrestateTraceBuilder::new(tracing_inspector.into_traces().into_nodes(), sentio_prestate_tracer_config)
                             .sentio_prestate_traces(&res, db)
                             .map_err(|e| EthApiError::EvmCustom(e.to_string()))?;
@@ -940,9 +943,9 @@ where
                     GethDebugBuiltInTracerType::SentioRethRawTracer => {
                         let inspector_cfg = TracingInspectorConfig::default_geth().set_record_logs(true).set_memory_snapshots(true);
                         let mut inspector = TracingInspector::new(inspector_cfg);
-                        let (res, env) = self.eth_api().inspect(db, env, &mut inspector)?;
+                        let (res, (_, tx_env)) = self.eth_api().inspect(db, evm_env, tx_env, &mut inspector)?;
 
-                        let tracing_inspector = inspector.with_transaction_gas_limit(env.tx.gas_limit);
+                        let tracing_inspector = inspector.with_transaction_gas_limit(tx_env.gas_limit());
                         let value = serde_json::to_value(tracing_inspector.into_traces().into_nodes()).unwrap();
                         Ok((GethTrace::SentioRethRawTracer(value), res.state))
                     }
