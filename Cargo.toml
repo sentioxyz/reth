@@ -756,5 +756,10 @@ alloy-transport = { git = "https://github.com/sentioxyz/alloy", branch = "releas
 alloy-transport-http = { git = "https://github.com/sentioxyz/alloy", branch = "release/v0.14.0" }
 alloy-transport-ipc = { git = "https://github.com/sentioxyz/alloy", branch = "release/v0.14.0" }
 alloy-transport-ws = { git = "https://github.com/sentioxyz/alloy", branch = "release/v0.14.0" }
-#
+
+op-alloy-consensus = { git = "https://github.com/sentioxyz/op-alloy", branch = "release/v0.14.1" }
+op-alloy-network = { git = "https://github.com/sentioxyz/op-alloy", branch = "release/v0.14.1" }
+op-alloy-rpc-types = { git = "https://github.com/sentioxyz/op-alloy", branch = "release/v0.14.1" }
+op-alloy-rpc-types-engine = { git = "https://github.com/sentioxyz/op-alloy", branch = "release/v0.14.1" }
+
 revm-inspectors = { git = "https://github.com/sentioxyz/revm-inspectors", branch = "release/v0.19.1" }
