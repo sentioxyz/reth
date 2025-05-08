@@ -19,11 +19,7 @@ use reth_evm::{execute::Executor, ConfigureEvm, EvmEnvFor, TxEnvFor};
 use reth_primitives_traits::{
     Block as _, BlockBody, ReceiptWithBloom, RecoveredBlock, SignedTransaction,
 };
-use reth_revm::{
-    database::StateProviderDatabase,
-    db::{CacheDB, State},
-    witness::ExecutionWitnessRecord,
-};
+use reth_revm::{database::StateProviderDatabase, db::{CacheDB, State}, witness::ExecutionWitnessRecord, Database};
 use reth_rpc_api::DebugApiServer;
 use reth_rpc_convert::RpcTxReq;
 use reth_rpc_eth_api::{
@@ -45,12 +41,10 @@ use revm::{
     db::{CacheDB, State},
 };
 use revm_inspectors::tracing::{FourByteInspector, MuxInspector, SentioPrestateTraceBuilder, SentioTraceBuilder, TracingInspector, TracingInspectorConfig, TransactionContext};
-use revm_primitives::{keccak256, HashMap};
 use std::sync::Arc;
-use alloy_rpc_types_trace::geth::sentio::SentioReceipt;
-use revm_primitives::bitvec::macros::internal::funty::Fundamental;
-use revm_primitives::db::Database;
 use tokio::sync::{AcquireError, OwnedSemaphorePermit};
+use alloy_rpc_types_trace::geth::sentio::SentioReceipt;
+use reth_revm::bytecode::bitvec::macros::internal::funty::Fundamental;
 
 /// `debug` API implementation.
 ///
@@ -426,15 +420,15 @@ where
                             .inner
                             .eth_api
                             .spawn_with_call_at(call, at, overrides, move |mut db, evm_env, tx_env| {
-                                let bn = evm_env.block_env.number.to::<u64>();
+                                let bn = evm_env.block_env.number;
                                 let block_hash = db.block_hash(bn).map_err(|_| EthApiError::InternalEthError)?;
                                 let (res, (_, tx_env)) = this.eth_api().inspect(db, evm_env, tx_env, &mut inspector)?;
 
                                 let receipt = SentioReceipt {
-                                    nonce: Some(tx_env.nonce().unwrap_or(0)),
+                                    nonce: Some(tx_env.nonce()),
                                     block_number: Some(U64::from(bn)),
                                     block_hash: Some(block_hash),
-                                    gas_price: Some(tx_env.gas_price()),
+                                    gas_price: Some(U256::from(tx_env.gas_price())),
                                     transaction_index: Some(0),
                                     tx_hash: None,
                                 };
@@ -911,11 +905,11 @@ where
                         let mut inspector = TracingInspector::new(inspector_cfg);
                         let (res, (evm_env, tx_env)) = self.eth_api().inspect(db, evm_env, tx_env, &mut inspector)?;
 
-                        let bn = evm_env.block_env.number.to::<u64>();
+                        let bn = evm_env.block_env.number;
                         let mut receipt = SentioReceipt {
-                            nonce: Some(tx_env.nonce().unwrap_or(0)),
+                            nonce: Some(tx_env.nonce()),
                             block_number: Some(U64::from(bn)),
-                            gas_price: Some(tx_env.gas_price()),
+                            gas_price: Some(U256::from(tx_env.gas_price())),
                             ..Default::default()
                         };
                         if let Some(ctx) = transaction_context {
