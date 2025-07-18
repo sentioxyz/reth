@@ -38,7 +38,6 @@ use revm::{
     context_interface::Transaction,
     state::EvmState,
     DatabaseCommit,
-    db::{CacheDB, State},
 };
 use revm_inspectors::tracing::{FourByteInspector, MuxInspector, SentioPrestateTraceBuilder, SentioTraceBuilder, TracingInspector, TracingInspectorConfig, TransactionContext};
 use std::sync::Arc;
