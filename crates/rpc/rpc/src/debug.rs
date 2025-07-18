@@ -151,7 +151,8 @@ where
             .map_err(BlockError::RlpDecodeRawBlock)
             .map_err(Eth::Error::from_eth_err)?;
 
-        let evm_env = self.eth_api().evm_config().evm_env(block.header());
+        let mut evm_env = self.eth_api().evm_config().evm_env(block.header());
+        evm_env.cfg_env.sentio_config = opts.sentio_config.clone();
 
         // Depending on EIP-2 we need to recover the transactions differently
         let senders =
@@ -190,10 +191,11 @@ where
             .map_err(Eth::Error::from_eth_err)?
             .ok_or(EthApiError::HeaderNotFound(block_id))?;
 
-        let ((evm_env, _), block) = futures::try_join!(
+        let ((mut evm_env, _), block) = futures::try_join!(
             self.eth_api().evm_env_at(block_hash.into()),
             self.eth_api().recovered_block(block_hash.into()),
         )?;
+        evm_env.cfg_env.sentio_config = opts.sentio_config.clone();
 
         let block = block.ok_or(EthApiError::HeaderNotFound(block_id))?;
 
@@ -212,7 +214,8 @@ where
             None => return Err(EthApiError::TransactionNotFound.into()),
             Some(res) => res,
         };
-        let (evm_env, _) = self.eth_api().evm_env_at(block.hash().into()).await?;
+        let (mut evm_env, _) = self.eth_api().evm_env_at(block.hash().into()).await?;
+        evm_env.cfg_env.sentio_config = opts.sentio_config.clone();
 
         // we need to get the state of the parent block because we're essentially replaying the
         // block the transaction is included in
@@ -283,7 +286,8 @@ where
                         let mut inspector = FourByteInspector::default();
                         let inspector = self
                             .eth_api()
-                            .spawn_with_call_at(call, at, overrides, move |db, evm_env, tx_env| {
+                            .spawn_with_call_at(call, at, overrides, move |db, mut evm_env, tx_env| {
+                                evm_env.cfg_env.sentio_config = tracing_options.sentio_config;
                                 this.eth_api().inspect(db, evm_env, tx_env, &mut inspector)?;
                                 Ok(inspector)
                             })
@@ -301,7 +305,8 @@ where
 
                         let frame = self
                             .eth_api()
-                            .spawn_with_call_at(call, at, overrides, move |db, evm_env, tx_env| {
+                            .spawn_with_call_at(call, at, overrides, move |db, mut evm_env, tx_env| {
+                                evm_env.cfg_env.sentio_config = tracing_options.sentio_config;
                                 let (res, (_, tx_env)) =
                                     this.eth_api().inspect(db, evm_env, tx_env, &mut inspector)?;
                                 let frame = inspector
@@ -323,7 +328,8 @@ where
 
                         let frame = self
                             .eth_api()
-                            .spawn_with_call_at(call, at, overrides, move |db, evm_env, tx_env| {
+                            .spawn_with_call_at(call, at, overrides, move |db, mut evm_env, tx_env| {
+                                evm_env.cfg_env.sentio_config = tracing_options.sentio_config;
                                 // wrapper is hack to get around 'higher-ranked lifetime error',
                                 // see <https://github.com/rust-lang/rust/issues/100013>
                                 let db = db.0;
@@ -356,7 +362,8 @@ where
                         let frame = self
                             .inner
                             .eth_api
-                            .spawn_with_call_at(call, at, overrides, move |db, evm_env, tx_env| {
+                            .spawn_with_call_at(call, at, overrides, move |db, mut evm_env, tx_env| {
+                                evm_env.cfg_env.sentio_config = tracing_options.sentio_config;
                                 // wrapper is hack to get around 'higher-ranked lifetime error', see
                                 // <https://github.com/rust-lang/rust/issues/100013>
                                 let db = db.0;
@@ -395,7 +402,8 @@ where
                         let frame: FlatCallFrame = self
                             .inner
                             .eth_api
-                            .spawn_with_call_at(call, at, overrides, move |db, evm_env, tx_env| {
+                            .spawn_with_call_at(call, at, overrides, move |db, mut evm_env, tx_env| {
+                                evm_env.cfg_env.sentio_config = tracing_options.sentio_config;
                                 let (_res, (_, tx_env)) =
                                     this.eth_api().inspect(db, evm_env, tx_env, &mut inspector)?;
                                 let tx_info = TransactionInfo::default();
@@ -418,7 +426,8 @@ where
                         let frame = self
                             .inner
                             .eth_api
-                            .spawn_with_call_at(call, at, overrides, move |mut db, evm_env, tx_env| {
+                            .spawn_with_call_at(call, at, overrides, move |mut db, mut evm_env, tx_env| {
+                                evm_env.cfg_env.sentio_config = tracing_options.sentio_config;
                                 let bn = evm_env.block_env.number;
                                 let block_hash = db.block_hash(bn).map_err(|_| EthApiError::InternalEthError)?;
                                 let (res, (_, tx_env)) = this.eth_api().inspect(db, evm_env, tx_env, &mut inspector)?;
@@ -448,7 +457,8 @@ where
                         let frame = self
                             .inner
                             .eth_api
-                            .spawn_with_call_at(call, at, overrides, move |db, evm_env, tx_env| {
+                            .spawn_with_call_at(call, at, overrides, move |db, mut evm_env, tx_env| {
+                                evm_env.cfg_env.sentio_config = tracing_options.sentio_config;
                                 let db = db.0;
                                 let (res, (_, tx_env)) = this.eth_api().inspect(&mut *db, evm_env, tx_env, &mut inspector)?;
                                 let tracing_inspector = inspector.with_transaction_gas_limit(tx_env.gas_limit());
@@ -466,7 +476,8 @@ where
                         let frame = self
                             .inner
                             .eth_api
-                            .spawn_with_call_at(call, at, overrides, move |db, evm_env, tx_env| {
+                            .spawn_with_call_at(call, at, overrides, move |db, mut evm_env, tx_env| {
+                                evm_env.cfg_env.sentio_config = tracing_options.sentio_config;
                                 let (_, (_, tx_env)) = this.eth_api().inspect(db, evm_env, tx_env, &mut inspector)?;
                                 let tracing_inspector = inspector.with_transaction_gas_limit(tx_env.gas_limit());
                                 let value = serde_json::to_value(tracing_inspector.into_traces().into_nodes()).unwrap();
@@ -614,12 +625,13 @@ where
                         let state_overrides = state_overrides.take();
                         let overrides = EvmOverrides::new(state_overrides, block_overrides.clone());
 
-                        let (evm_env, tx_env) = this.eth_api().prepare_call_env(
+                        let (mut evm_env, tx_env) = this.eth_api().prepare_call_env(
                             evm_env.clone(),
                             tx,
                             &mut db,
                             overrides,
                         )?;
+                        evm_env.cfg_env.sentio_config = tracing_options.sentio_config.clone();
 
                         let (trace, state) = this.trace_transaction(
                             &tracing_options,
