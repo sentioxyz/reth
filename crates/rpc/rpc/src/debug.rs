@@ -428,7 +428,7 @@ where
                             .eth_api
                             .spawn_with_call_at(call, at, overrides, move |mut db, mut evm_env, tx_env| {
                                 evm_env.cfg_env.sentio_config = tracing_options.sentio_config;
-                                let bn = evm_env.block_env.number;
+                                let bn = evm_env.block_env.number.saturating_to::<u64>();
                                 let block_hash = db.block_hash(bn).map_err(|_| EthApiError::InternalEthError)?;
                                 let (res, (_, tx_env)) = this.eth_api().inspect(db, evm_env, tx_env, &mut inspector)?;
 
