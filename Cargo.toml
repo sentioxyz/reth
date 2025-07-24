@@ -789,7 +789,7 @@ alloy-transport-ws = { git = "https://github.com/sentioxyz/alloy", branch = "rel
 #op-alloy-rpc-types-engine = { git = "https://github.com/sentioxyz/op-alloy", branch = "release/v0.18.7" }
 #op-alloy-rpc-jsonrpsee = { git = "https://github.com/sentioxyz/op-alloy", branch = "release/v0.18.7" }
 
-revm-inspectors = { git = "https://github.com/sentioxyz/revm-inspectors", branch = "release/v0.26.5" }
+revm-inspectors = { git = "https://github.com/sentioxyz/revm-inspectors", branch = "release/v0.27.1" }
 
 revm = { git = "https://github.com/sentioxyz/revm", branch = "release/v83-new" }
 revm-bytecode = { git = "https://github.com/sentioxyz/revm", branch = "release/v83-new" }
