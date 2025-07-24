@@ -805,4 +805,4 @@ revm-database-interface = { git = "https://github.com/sentioxyz/revm", branch = 
 revm-precompile = { git = "https://github.com/sentioxyz/revm", branch = "release/v83-new" }
 op-revm = { git = "https://github.com/sentioxyz/revm", branch = "release/v83-new" }
 
-alloy-evm = { git = "https://github.com/sentioxyz/alloy-evm", branch = "release/v0.14.0" }
+alloy-evm = { git = "https://github.com/sentioxyz/alloy-evm", branch = "release/v0.15.0" }
