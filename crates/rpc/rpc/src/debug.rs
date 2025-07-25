@@ -447,7 +447,7 @@ where
                                     tx_hash: None,
                                 };
                                 let tracing_inspector = inspector.with_transaction_gas_limit(tx_env.gas_limit());
-                                let trace = SentioTraceBuilder::new(tracing_inspector.into_traces().into_nodes(), sentio_tracer_config)
+                                let trace = SentioTraceBuilder::new(tracing_inspector.into_traces().into_nodes(), None, sentio_tracer_config)
                                     .sentio_traces(res.result.gas_used(), refund, Some(receipt));
                                 Ok(trace.into())
                             })
@@ -941,7 +941,7 @@ where
                         }
 
                         let tracing_inspector = inspector.with_transaction_gas_limit(tx_env.gas_limit());
-                        let trace = SentioTraceBuilder::new(tracing_inspector.into_traces().into_nodes(), sentio_tracer_config)
+                        let trace = SentioTraceBuilder::new(tracing_inspector.into_traces().into_nodes(), None, sentio_tracer_config)
                             .sentio_traces(res.result.gas_used(), refund, Some(receipt));
 
                         Ok((trace.into(), res.state))
