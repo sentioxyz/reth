@@ -41,6 +41,7 @@ use revm::{
 };
 use revm_inspectors::tracing::{FourByteInspector, MuxInspector, SentioPrestateTraceBuilder, SentioTraceBuilder, TracingInspector, TracingInspectorConfig, TransactionContext};
 use std::sync::Arc;
+use alloy_evm::overrides::apply_state_overrides;
 use tokio::sync::{AcquireError, OwnedSemaphorePermit};
 use alloy_rpc_types_trace::geth::sentio::SentioReceipt;
 use reth_revm::bytecode::bitvec::macros::internal::funty::Fundamental;
@@ -208,14 +209,14 @@ where
     pub async fn debug_trace_transaction(
         &self,
         tx_hash: B256,
-        opts: GethDebugTracingOptions,
+        opts: GethDebugTracingCallOptions,
     ) -> Result<GethTrace, Eth::Error> {
         let (transaction, block) = match self.eth_api().transaction_and_block(tx_hash).await? {
             None => return Err(EthApiError::TransactionNotFound.into()),
             Some(res) => res,
         };
         let (mut evm_env, _) = self.eth_api().evm_env_at(block.hash().into()).await?;
-        evm_env.cfg_env.sentio_config = opts.sentio_config.clone();
+        evm_env.cfg_env.sentio_config = opts.tracing_options.sentio_config.clone();
 
         // we need to get the state of the parent block because we're essentially replaying the
         // block the transaction is included in
@@ -244,8 +245,12 @@ where
 
                 let tx_env = this.eth_api().evm_config().tx_env(&tx);
 
+                if let Some(state_overrides) = opts.state_overrides {
+                    apply_state_overrides(state_overrides, &mut db)
+                        .map_err(EthApiError::from_state_overrides_err)?;
+                }
                 this.trace_transaction(
-                    &opts,
+                    &opts.tracing_options,
                     evm_env,
                     tx_env,
                     &mut db,
@@ -1164,7 +1169,7 @@ where
     async fn debug_trace_transaction(
         &self,
         tx_hash: B256,
-        opts: Option<GethDebugTracingOptions>,
+        opts: Option<GethDebugTracingCallOptions>,
     ) -> RpcResult<GethTrace> {
         let _permit = self.acquire_trace_permit().await;
         Self::debug_trace_transaction(self, tx_hash, opts.unwrap_or_default())
