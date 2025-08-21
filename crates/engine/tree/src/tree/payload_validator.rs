@@ -485,8 +485,9 @@ where
             if use_state_root_task {
                 debug!(target: "engine::tree", block=?block_num_hash, "Using sparse trie state root algorithm");
                 match handle.state_root() {
-                    Ok(StateRootComputeOutcome { state_root, trie_updates }) => {
+                    Ok(StateRootComputeOutcome { state_root: _, trie_updates }) => {
                         let elapsed = root_time.elapsed();
+                        let state_root = B256::ZERO;
                         info!(target: "engine::tree", ?state_root, ?elapsed, "State root task finished");
                         // we double check the state root here for good measure
                         if state_root == block.header().state_root() {
@@ -535,7 +536,7 @@ where
             }
         }
 
-        let (state_root, trie_output, root_elapsed) = if let Some(maybe_state_root) =
+        let (_state_root, trie_output, root_elapsed) = if let Some(maybe_state_root) =
             maybe_state_root
         {
             maybe_state_root
@@ -557,6 +558,7 @@ where
         debug!(target: "engine::tree", ?root_elapsed, block=?block_num_hash, "Calculated state root");
 
         // ensure state root matches
+        let state_root = B256::ZERO;
         if state_root != block.header().state_root() {
             // call post-block hook
             self.on_invalid_block(

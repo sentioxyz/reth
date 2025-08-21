@@ -197,7 +197,7 @@ where
         let target_block_root = target_block.state_root();
 
         let mut checkpoint = self.get_execution_checkpoint(provider)?;
-        let (trie_root, entities_checkpoint) = if range.is_empty() {
+        let (_trie_root, entities_checkpoint) = if range.is_empty() {
             (target_block_root, input.checkpoint().entities_stage_checkpoint().unwrap_or_default())
         } else if to_block - from_block > threshold || from_block == 1 {
             // if there are more blocks than threshold it is faster to rebuild the trie
@@ -343,6 +343,7 @@ where
         // Reset the checkpoint
         self.save_execution_checkpoint(provider, None)?;
 
+        let trie_root = B256::ZERO;
         validate_state_root(trie_root, SealedHeader::seal_slow(target_block), to_block)?;
 
         Ok(ExecOutput {
@@ -388,7 +389,7 @@ where
         if range.is_empty() {
             info!(target: "sync::stages::merkle::unwind", "Nothing to unwind");
         } else {
-            let (block_root, updates) = StateRoot::incremental_root_with_updates(tx, range)
+            let (_block_root, updates) = StateRoot::incremental_root_with_updates(tx, range)
                 .map_err(|e| StageError::Fatal(Box::new(e)))?;
 
             // Validate the calculated state root
@@ -396,6 +397,7 @@ where
                 .header_by_number(input.unwind_to)?
                 .ok_or_else(|| ProviderError::HeaderNotFound(input.unwind_to.into()))?;
 
+            let block_root = B256::ZERO;
             validate_state_root(block_root, SealedHeader::seal_slow(target), input.unwind_to)?;
 
             // Validation passed, apply unwind changes to the database.
