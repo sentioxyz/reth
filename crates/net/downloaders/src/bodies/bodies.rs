@@ -120,9 +120,7 @@ where
 
             if should_take {
                 collected += 1;
-                if !header.is_empty() {
-                    non_empty_headers += 1;
-                }
+                non_empty_headers += 1;
                 true
             } else {
                 false

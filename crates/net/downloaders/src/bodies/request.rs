@@ -101,8 +101,7 @@ where
 
     /// Retrieve header hashes for the next request.
     fn next_request(&self) -> Option<Vec<B256>> {
-        let mut hashes =
-            self.pending_headers.iter().filter(|h| !h.is_empty()).map(|h| h.hash()).peekable();
+        let mut hashes = self.pending_headers.iter().map(|h| h.hash()).peekable();
         hashes.peek().is_some().then(|| hashes.collect())
     }
 
@@ -177,32 +176,26 @@ where
                 None => return Ok(()), // no more headers
             };
 
-            if next_header.is_empty() {
-                // increment empty block body metric
-                total_size += mem::size_of::<C::Body>();
-                self.buffer.push(BlockResponse::Empty(next_header));
-            } else {
-                let next_body = bodies.next().unwrap();
+            let next_body = bodies.next().unwrap();
 
-                // increment full block body metric
-                total_size += next_body.size();
+            // increment full block body metric
+            total_size += next_body.size();
 
-                let block = SealedBlock::from_sealed_parts(next_header, next_body);
+            let block = SealedBlock::from_sealed_parts(next_header, next_body);
 
-                if let Err(error) = self.consensus.validate_block_pre_execution(&block) {
-                    // Body is invalid, put the header back and return an error
-                    let hash = block.hash();
-                    let number = block.number();
-                    self.pending_headers.push_front(block.into_sealed_header());
-                    return Err(DownloadError::BodyValidation {
-                        hash,
-                        number,
-                        error: Box::new(error),
-                    })
-                }
-
-                self.buffer.push(BlockResponse::Full(block));
+            if let Err(error) = self.consensus.validate_block_pre_execution(&block) {
+                // Body is invalid, put the header back and return an error
+                let hash = block.hash();
+                let number = block.number();
+                self.pending_headers.push_front(block.into_sealed_header());
+                return Err(DownloadError::BodyValidation {
+                    hash,
+                    number,
+                    error: Box::new(error),
+                })
             }
+
+            self.buffer.push(BlockResponse::Full(block));
         }
 
         // Increment per-response metric
@@ -246,12 +239,6 @@ where
                         this.on_error(error.into(), None);
                     }
                 }
-            }
-
-            // Buffer any empty headers
-            while this.pending_headers.front().is_some_and(|h| h.is_empty()) {
-                let header = this.pending_headers.pop_front().unwrap();
-                this.buffer.push(BlockResponse::Empty(header));
             }
         }
     }
