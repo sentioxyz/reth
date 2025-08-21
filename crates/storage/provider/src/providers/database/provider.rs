@@ -311,7 +311,7 @@ impl<TX: DbTx + DbTxMut + 'static, N: NodeTypesForProvider> DatabaseProvider<TX,
             storage_prefix_sets,
             destroyed_accounts,
         };
-        let (new_state_root, trie_updates) = StateRoot::from_tx(&self.tx)
+        let (_new_state_root, trie_updates) = StateRoot::from_tx(&self.tx)
             .with_prefix_sets(prefix_sets)
             .root_with_updates()
             .map_err(reth_db_api::DatabaseError::from)?;
@@ -324,6 +324,7 @@ impl<TX: DbTx + DbTxMut + 'static, N: NodeTypesForProvider> DatabaseProvider<TX,
 
         // state root should be always correct as we are reverting state.
         // but for sake of double verification we will check it again.
+        let new_state_root = B256::ZERO;
         if new_state_root != parent_state_root {
             let parent_hash = self
                 .block_hash(parent_number)?
