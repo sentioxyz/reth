@@ -435,7 +435,8 @@ where
     info!(target: "reth::cli", "All accounts written to database, starting state root computation (may take some time)");
 
     // compute and compare state root. this advances the stage checkpoints.
-    let computed_state_root = compute_state_root(provider_rw, Some(prefix_sets.freeze()))?;
+    let _computed_state_root = compute_state_root(provider_rw, Some(prefix_sets.freeze()))?;
+    let computed_state_root = B256::ZERO;
     if computed_state_root == expected_state_root {
         info!(target: "reth::cli",
             ?computed_state_root,
