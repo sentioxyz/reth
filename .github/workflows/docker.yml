@@ -10,11 +10,11 @@ on:
 
 env:
   REPO_NAME: ${{ github.repository_owner }}/reth
-  IMAGE_NAME: ${{ github.repository_owner }}/reth
-  OP_IMAGE_NAME: ${{ github.repository_owner }}/op-reth
+  IMAGE_NAME: hl-archive-node/reth
+  OP_IMAGE_NAME: hl-archive-node/op-reth
   CARGO_TERM_COLOR: always
-  DOCKER_IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/reth
-  OP_DOCKER_IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/op-reth
+  DOCKER_IMAGE_NAME: ghcr.io/hl-archive-node/reth
+  OP_DOCKER_IMAGE_NAME: ghcr.io/hl-archive-node/op-reth
   DOCKER_USERNAME: ${{ github.actor }}
 
 jobs:
