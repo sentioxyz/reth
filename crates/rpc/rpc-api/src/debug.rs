@@ -91,7 +91,7 @@ pub trait DebugApi<TxReq: RpcObject> {
     async fn debug_trace_transaction(
         &self,
         tx_hash: B256,
-        opts: Option<GethDebugTracingOptions>,
+        opts: Option<GethDebugTracingCallOptions>,
     ) -> RpcResult<GethTrace>;
 
     /// The `debug_traceCall` method lets you run an `eth_call` within the context of the given

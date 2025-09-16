@@ -31,7 +31,7 @@ EF_TESTS_URL := https://github.com/ethereum/tests/archive/refs/tags/$(EF_TESTS_T
 EF_TESTS_DIR := ./testing/ef-tests/ethereum-tests
 
 # The docker image name
-DOCKER_IMAGE_NAME ?= ghcr.io/paradigmxyz/reth
+DOCKER_IMAGE_NAME ?= ghcr.io/sentioxyz/reth
 
 ##@ Help
 
@@ -258,16 +258,11 @@ define docker_build_push
 	mkdir -p $(BIN_DIR)/amd64
 	cp $(CARGO_TARGET_DIR)/x86_64-unknown-linux-gnu/$(PROFILE)/reth $(BIN_DIR)/amd64/reth
 
-	$(MAKE) build-aarch64-unknown-linux-gnu
-	mkdir -p $(BIN_DIR)/arm64
-	cp $(CARGO_TARGET_DIR)/aarch64-unknown-linux-gnu/$(PROFILE)/reth $(BIN_DIR)/arm64/reth
-
 	docker buildx build --file ./Dockerfile.cross . \
-		--platform linux/amd64,linux/arm64 \
+		--platform linux/amd64 \
 		--tag $(DOCKER_IMAGE_NAME):$(1) \
 		--tag $(DOCKER_IMAGE_NAME):$(2) \
-		--provenance=false \
-		--push
+		--provenance=false
 endef
 
 ##@ Optimism docker
@@ -327,16 +322,11 @@ define op_docker_build_push
 	mkdir -p $(BIN_DIR)/amd64
 	cp $(CARGO_TARGET_DIR)/x86_64-unknown-linux-gnu/$(PROFILE)/op-reth $(BIN_DIR)/amd64/op-reth
 
-	$(MAKE) op-build-aarch64-unknown-linux-gnu
-	mkdir -p $(BIN_DIR)/arm64
-	cp $(CARGO_TARGET_DIR)/aarch64-unknown-linux-gnu/$(PROFILE)/op-reth $(BIN_DIR)/arm64/op-reth
-
 	docker buildx build --file ./DockerfileOp.cross . \
-		--platform linux/amd64,linux/arm64 \
+		--platform linux/amd64 \
 		--tag $(DOCKER_IMAGE_NAME):$(1) \
 		--tag $(DOCKER_IMAGE_NAME):$(2) \
-		--provenance=false \
-		--push
+		--provenance=false
 endef
 
 ##@ Other
