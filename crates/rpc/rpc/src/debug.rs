@@ -41,6 +41,7 @@ use revm::DatabaseCommit;
 use revm_inspectors::tracing::{DebugInspector, TransactionContext};
 use serde::{Deserialize, Serialize};
 use std::{collections::VecDeque, sync::Arc};
+use alloy_evm::overrides::apply_state_overrides;
 use tokio::sync::{AcquireError, OwnedSemaphorePermit};
 use tokio_stream::StreamExt;
 
@@ -173,12 +174,13 @@ where
             .map_err(BlockError::RlpDecodeRawBlock)
             .map_err(Eth::Error::from_eth_err)?;
 
-        let evm_env = self
+        let mut evm_env = self
             .eth_api()
             .evm_config()
             .evm_env(block.header())
             .map_err(RethError::other)
             .map_err(Eth::Error::from_eth_err)?;
+        evm_env.cfg_env.sentio_config = opts.sentio_config.clone();
 
         // Depending on EIP-2 we need to recover the transactions differently
         let senders =
@@ -204,10 +206,11 @@ where
             .map_err(Eth::Error::from_eth_err)?
             .ok_or(EthApiError::HeaderNotFound(block_id))?;
 
-        let ((evm_env, _), block) = futures::try_join!(
+        let ((mut evm_env, _), block) = futures::try_join!(
             self.eth_api().evm_env_at(block_hash.into()),
             self.eth_api().recovered_block(block_hash.into()),
         )?;
+        evm_env.cfg_env.sentio_config = opts.sentio_config.clone();
 
         let block = block.ok_or(EthApiError::HeaderNotFound(block_id))?;
 
@@ -220,13 +223,14 @@ where
     pub async fn debug_trace_transaction(
         &self,
         tx_hash: B256,
-        opts: GethDebugTracingOptions,
+        opts: GethDebugTracingCallOptions,
     ) -> Result<GethTrace, Eth::Error> {
         let (transaction, block) = match self.eth_api().transaction_and_block(tx_hash).await? {
             None => return Err(EthApiError::TransactionNotFound.into()),
             Some(res) => res,
         };
-        let (evm_env, _) = self.eth_api().evm_env_at(block.hash().into()).await?;
+        let (mut evm_env, _) = self.eth_api().evm_env_at(block.hash().into()).await?;
+        evm_env.cfg_env.sentio_config = opts.tracing_options.sentio_config.clone();
 
         // we need to get the state of the parent block because we're essentially replaying the
         // block the transaction is included in
@@ -252,7 +256,12 @@ where
 
                 let tx_env = eth_api.evm_config().tx_env(&tx);
 
-                let mut inspector = DebugInspector::new(opts).map_err(Eth::Error::from_eth_err)?;
+                if let Some(state_overrides) = opts.state_overrides {
+                    apply_state_overrides(state_overrides, &mut db)
+                        .map_err(EthApiError::from_state_overrides_err)?;
+                }
+
+                let mut inspector = DebugInspector::new(opts.tracing_options).map_err(Eth::Error::from_eth_err)?;
                 let res =
                     eth_api.inspect(&mut db, evm_env.clone(), tx_env.clone(), &mut inspector)?;
                 let trace = inspector
@@ -779,7 +788,7 @@ where
     async fn debug_trace_transaction(
         &self,
         tx_hash: B256,
-        opts: Option<GethDebugTracingOptions>,
+        opts: Option<GethDebugTracingCallOptions>,
     ) -> RpcResult<GethTrace> {
         let _permit = self.acquire_trace_permit().await;
         Self::debug_trace_transaction(self, tx_hash, opts.unwrap_or_default())
