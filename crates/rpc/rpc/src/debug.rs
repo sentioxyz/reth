@@ -4,7 +4,7 @@ use alloy_consensus::{
 };
 use alloy_eips::{eip2718::Encodable2718, BlockId, BlockNumberOrTag};
 use alloy_genesis::ChainConfig;
-use alloy_primitives::{uint, Address, Bytes, B256};
+use alloy_primitives::{uint, Address, Bytes, B256, U256, U64};
 use alloy_rlp::{Decodable, Encodable};
 use alloy_rpc_types_debug::ExecutionWitness;
 use alloy_rpc_types_eth::{
@@ -20,11 +20,7 @@ use jsonrpsee::core::RpcResult;
 use reth_chainspec::{ChainSpecProvider, EthChainSpec, EthereumHardforks};
 use reth_evm::{execute::Executor, ConfigureEvm, EvmEnvFor, TxEnvFor};
 use reth_primitives_traits::{Block as _, BlockBody, ReceiptWithBloom, RecoveredBlock};
-use reth_revm::{
-    database::StateProviderDatabase,
-    db::{CacheDB, State},
-    witness::ExecutionWitnessRecord,
-};
+use reth_revm::{database::StateProviderDatabase, db::{CacheDB, State}, witness::ExecutionWitnessRecord, Database};
 use reth_rpc_api::DebugApiServer;
 use reth_rpc_convert::RpcTxReq;
 use reth_rpc_eth_api::{
@@ -39,12 +35,18 @@ use reth_storage_api::{
 };
 use reth_tasks::pool::BlockingTaskGuard;
 use reth_trie_common::{updates::TrieUpdates, HashedPostState};
-use revm::{context_interface::Transaction, state::EvmState, DatabaseCommit};
-use revm_inspectors::tracing::{
-    FourByteInspector, MuxInspector, TracingInspector, TracingInspectorConfig, TransactionContext,
+use revm::{
+    context_interface::Transaction,
+    state::EvmState,
+    DatabaseCommit,
 };
+use revm_inspectors::tracing::{FourByteInspector, MuxInspector, SentioPrestateTraceBuilder, SentioTraceBuilder, TracingInspector, TracingInspectorConfig, TransactionContext};
 use std::sync::Arc;
+use alloy_evm::overrides::apply_state_overrides;
 use tokio::sync::{AcquireError, OwnedSemaphorePermit};
+use alloy_rpc_types_trace::geth::sentio::SentioReceipt;
+use reth_revm::bytecode::bitvec::macros::internal::funty::Fundamental;
+use reth_revm::context::result::ExecutionResult;
 
 /// `debug` API implementation.
 ///
@@ -151,7 +153,8 @@ where
             .map_err(BlockError::RlpDecodeRawBlock)
             .map_err(Eth::Error::from_eth_err)?;
 
-        let evm_env = self.eth_api().evm_config().evm_env(block.header());
+        let mut evm_env = self.eth_api().evm_config().evm_env(block.header());
+        evm_env.cfg_env.sentio_config = opts.sentio_config.clone();
 
         // Depending on EIP-2 we need to recover the transactions differently
         let senders =
@@ -190,10 +193,11 @@ where
             .map_err(Eth::Error::from_eth_err)?
             .ok_or(EthApiError::HeaderNotFound(block_id))?;
 
-        let ((evm_env, _), block) = futures::try_join!(
+        let ((mut evm_env, _), block) = futures::try_join!(
             self.eth_api().evm_env_at(block_hash.into()),
             self.eth_api().recovered_block(block_hash.into()),
         )?;
+        evm_env.cfg_env.sentio_config = opts.sentio_config.clone();
 
         let block = block.ok_or(EthApiError::HeaderNotFound(block_id))?;
 
@@ -206,13 +210,14 @@ where
     pub async fn debug_trace_transaction(
         &self,
         tx_hash: B256,
-        opts: GethDebugTracingOptions,
+        opts: GethDebugTracingCallOptions,
     ) -> Result<GethTrace, Eth::Error> {
         let (transaction, block) = match self.eth_api().transaction_and_block(tx_hash).await? {
             None => return Err(EthApiError::TransactionNotFound.into()),
             Some(res) => res,
         };
-        let (evm_env, _) = self.eth_api().evm_env_at(block.hash().into()).await?;
+        let (mut evm_env, _) = self.eth_api().evm_env_at(block.hash().into()).await?;
+        evm_env.cfg_env.sentio_config = opts.tracing_options.sentio_config.clone();
 
         // we need to get the state of the parent block because we're essentially replaying the
         // block the transaction is included in
@@ -241,8 +246,12 @@ where
 
                 let tx_env = this.eth_api().evm_config().tx_env(&tx);
 
+                if let Some(state_overrides) = opts.state_overrides {
+                    apply_state_overrides(state_overrides, &mut db)
+                        .map_err(EthApiError::from_state_overrides_err)?;
+                }
                 this.trace_transaction(
-                    &opts,
+                    &opts.tracing_options,
                     evm_env,
                     tx_env,
                     &mut db,
@@ -285,7 +294,8 @@ where
                         let mut inspector = FourByteInspector::default();
                         let inspector = self
                             .eth_api()
-                            .spawn_with_call_at(call, at, overrides, move |db, evm_env, tx_env| {
+                            .spawn_with_call_at(call, at, overrides, move |db, mut evm_env, tx_env| {
+                                evm_env.cfg_env.sentio_config = tracing_options.sentio_config;
                                 this.eth_api().inspect(db, evm_env, tx_env, &mut inspector)?;
                                 Ok(inspector)
                             })
@@ -326,7 +336,8 @@ where
 
                         let frame = self
                             .eth_api()
-                            .spawn_with_call_at(call, at, overrides, move |db, evm_env, tx_env| {
+                            .spawn_with_call_at(call, at, overrides, move |db, mut evm_env, tx_env| {
+                                evm_env.cfg_env.sentio_config = tracing_options.sentio_config;
                                 // wrapper is hack to get around 'higher-ranked lifetime error',
                                 // see <https://github.com/rust-lang/rust/issues/100013>
                                 let db = db.0;
@@ -360,7 +371,8 @@ where
                         let frame = self
                             .inner
                             .eth_api
-                            .spawn_with_call_at(call, at, overrides, move |db, evm_env, tx_env| {
+                            .spawn_with_call_at(call, at, overrides, move |db, mut evm_env, tx_env| {
+                                evm_env.cfg_env.sentio_config = tracing_options.sentio_config;
                                 // wrapper is hack to get around 'higher-ranked lifetime error', see
                                 // <https://github.com/rust-lang/rust/issues/100013>
                                 let db = db.0;
@@ -412,6 +424,85 @@ where
                             .await?;
 
                         Ok(frame.into())
+                    }
+                    GethDebugBuiltInTracerType::SentioTracer => {
+                        let sentio_tracer_config = tracer_config
+                            .into_sentio_config()
+                            .map_err(|_| EthApiError::InvalidTracerConfig)?;
+                        let inspector_cfg = TracingInspectorConfig::default_geth().set_record_logs(true).set_memory_snapshots(true);
+                        let mut inspector = TracingInspector::new(inspector_cfg);
+                        let frame = self
+                            .inner
+                            .eth_api
+                            .spawn_with_call_at(call, at, overrides, move |mut db, mut evm_env, tx_env| {
+                                evm_env.cfg_env.sentio_config = tracing_options.sentio_config;
+                                let nonce = tx_env.nonce();
+                                let gas_price = tx_env.gas_price();
+                                let gas_limit = tx_env.gas_limit();
+                                let bn = evm_env.block_env.number.saturating_to::<u64>();
+                                let block_hash = db.block_hash(bn).map_err(|_| EthApiError::InternalEthError)?;
+                                let res = this.eth_api().inspect(db, evm_env, tx_env, &mut inspector)?;
+
+                                let refund = if let ExecutionResult::Success { gas_refunded, .. } = res.result {
+                                    gas_refunded
+                                } else {
+                                    0
+                                };
+                                let receipt = SentioReceipt {
+                                    nonce: Some(nonce),
+                                    block_number: Some(U64::from(bn)),
+                                    block_hash: Some(block_hash),
+                                    gas_price: Some(U256::from(gas_price)),
+                                    transaction_index: Some(0),
+                                    tx_hash: None,
+                                };
+                                let tracing_inspector = inspector.with_transaction_gas_limit(gas_limit);
+                                let trace = SentioTraceBuilder::new(tracing_inspector.into_traces().into_nodes(), None, sentio_tracer_config)
+                                    .sentio_traces(res.result.gas_used(), refund, Some(receipt));
+                                Ok(trace.into())
+                            })
+                            .await?;
+                        return Ok(frame);
+                    }
+                    GethDebugBuiltInTracerType::SentioPrestateTracer => {
+                        let sentio_prestate_tracer_config = tracer_config
+                            .into_sentio_prestate_config()
+                            .map_err(|_| EthApiError::InvalidTracerConfig)?;
+                        let inspector_cfg = TracingInspectorConfig::default_geth().set_record_logs(true).set_memory_snapshots(true);
+                        let mut inspector = TracingInspector::new(inspector_cfg);
+                        let frame = self
+                            .inner
+                            .eth_api
+                            .spawn_with_call_at(call, at, overrides, move |db, mut evm_env, tx_env| {
+                                evm_env.cfg_env.sentio_config = tracing_options.sentio_config;
+                                let gas_limit = tx_env.gas_limit();
+                                let db = db.0;
+                                let res = this.eth_api().inspect(&mut *db, evm_env, tx_env, &mut inspector)?;
+                                let tracing_inspector = inspector.with_transaction_gas_limit(gas_limit);
+                                let trace = SentioPrestateTraceBuilder::new(tracing_inspector.into_traces().into_nodes(), sentio_prestate_tracer_config)
+                                    .sentio_prestate_traces(&res, db)
+                                    .map_err(|e| EthApiError::EvmCustom(e.to_string()))?;
+                                Ok(trace.into())
+                            })
+                            .await?;
+                        return Ok(frame);
+                    }
+                    GethDebugBuiltInTracerType::SentioRethRawTracer => {
+                        let inspector_cfg = TracingInspectorConfig::default_geth().set_record_logs(true).set_memory_snapshots(true);
+                        let mut inspector = TracingInspector::new(inspector_cfg);
+                        let frame = self
+                            .inner
+                            .eth_api
+                            .spawn_with_call_at(call, at, overrides, move |db, mut evm_env, tx_env| {
+                                evm_env.cfg_env.sentio_config = tracing_options.sentio_config;
+                                let gas_limit = tx_env.gas_limit();
+                                this.eth_api().inspect(db, evm_env, tx_env, &mut inspector)?;
+                                let tracing_inspector = inspector.with_transaction_gas_limit(gas_limit);
+                                let value = serde_json::to_value(tracing_inspector.into_traces().into_nodes()).unwrap();
+                                Ok(GethTrace::SentioRethRawTracer(value))
+                            })
+                            .await?;
+                        return Ok(frame);
                     }
                 },
                 #[cfg(not(feature = "js-tracer"))]
@@ -557,12 +648,13 @@ where
                         let state_overrides = state_overrides.take();
                         let overrides = EvmOverrides::new(state_overrides, block_overrides.clone());
 
-                        let (evm_env, tx_env) = this.eth_api().prepare_call_env(
+                        let (mut evm_env, tx_env) = this.eth_api().prepare_call_env(
                             evm_env.clone(),
                             tx,
                             &mut db,
                             overrides,
                         )?;
+                        evm_env.cfg_env.sentio_config = tracing_options.sentio_config.clone();
 
                         let (trace, state) = this.trace_transaction(
                             &tracing_options,
@@ -832,6 +924,69 @@ where
 
                         return Ok((frame.into(), res.state));
                     }
+                    GethDebugBuiltInTracerType::SentioTracer => {
+                        let sentio_tracer_config = tracer_config
+                            .clone()
+                            .into_sentio_config()
+                            .map_err(|_| EthApiError::InvalidTracerConfig)?;
+                        let nonce = tx_env.nonce();
+                        let gas_price = tx_env.gas_price();
+                        let gas_limit = tx_env.gas_limit();
+                        let bn = evm_env.block_env.number.saturating_to::<u64>();
+                        let inspector_cfg = TracingInspectorConfig::default_geth().set_record_logs(true).set_memory_snapshots(true);
+                        let mut inspector = TracingInspector::new(inspector_cfg);
+                        let res = self.eth_api().inspect(db, evm_env, tx_env, &mut inspector)?;
+                        let refund = if let ExecutionResult::Success { gas_refunded, .. } = res.result {
+                            gas_refunded
+                        } else {
+                            0
+                        };
+
+                        let mut receipt = SentioReceipt {
+                            nonce: Some(nonce),
+                            block_number: Some(U64::from(bn)),
+                            gas_price: Some(U256::from(gas_price)),
+                            ..Default::default()
+                        };
+                        if let Some(ctx) = transaction_context {
+                            receipt.tx_hash = ctx.tx_hash;
+                            receipt.block_hash = ctx.block_hash;
+                            receipt.transaction_index = Some(ctx.tx_index.unwrap_or(0).as_u64());
+                        }
+
+                        let tracing_inspector = inspector.with_transaction_gas_limit(gas_limit);
+                        let trace = SentioTraceBuilder::new(tracing_inspector.into_traces().into_nodes(), None, sentio_tracer_config)
+                            .sentio_traces(res.result.gas_used(), refund, Some(receipt));
+
+                        Ok((trace.into(), res.state))
+                    }
+                    GethDebugBuiltInTracerType::SentioPrestateTracer => {
+                        let gas_limit = tx_env.gas_limit();
+                        let sentio_prestate_tracer_config = tracer_config
+                            .clone()
+                            .into_sentio_prestate_config()
+                            .map_err(|_| EthApiError::InvalidTracerConfig)?;
+                        let inspector_cfg = TracingInspectorConfig::default_geth().set_record_logs(true).set_memory_snapshots(true);
+                        let mut inspector = TracingInspector::new(inspector_cfg);
+                        let res = self.eth_api().inspect(&mut *db, evm_env, tx_env, &mut inspector)?;
+
+                        let tracing_inspector = inspector.with_transaction_gas_limit(gas_limit);
+                        let trace = SentioPrestateTraceBuilder::new(tracing_inspector.into_traces().into_nodes(), sentio_prestate_tracer_config)
+                            .sentio_prestate_traces(&res, db)
+                            .map_err(|e| EthApiError::EvmCustom(e.to_string()))?;
+
+                        Ok((trace.into(), res.state))
+                    }
+                    GethDebugBuiltInTracerType::SentioRethRawTracer => {
+                        let gas_limit = tx_env.gas_limit();
+                        let inspector_cfg = TracingInspectorConfig::default_geth().set_record_logs(true).set_memory_snapshots(true);
+                        let mut inspector = TracingInspector::new(inspector_cfg);
+                        let res = self.eth_api().inspect(db, evm_env, tx_env, &mut inspector)?;
+
+                        let tracing_inspector = inspector.with_transaction_gas_limit(gas_limit);
+                        let value = serde_json::to_value(tracing_inspector.into_traces().into_nodes()).unwrap();
+                        Ok((GethTrace::SentioRethRawTracer(value), res.state))
+                    }
                 },
                 #[cfg(not(feature = "js-tracer"))]
                 GethDebugTracerType::JsTracer(_) => {
@@ -1030,7 +1185,7 @@ where
     async fn debug_trace_transaction(
         &self,
         tx_hash: B256,
-        opts: Option<GethDebugTracingOptions>,
+        opts: Option<GethDebugTracingCallOptions>,
     ) -> RpcResult<GethTrace> {
         let _permit = self.acquire_trace_permit().await;
         Self::debug_trace_transaction(self, tx_hash, opts.unwrap_or_default())
