@@ -154,7 +154,7 @@ where
             .map_err(BlockError::RlpDecodeRawBlock)
             .map_err(Eth::Error::from_eth_err)?;
 
-        let evm_env = self
+        let mut evm_env = self
             .eth_api()
             .evm_config()
             .evm_env(block.header())
