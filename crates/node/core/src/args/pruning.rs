@@ -239,6 +239,8 @@ impl PruningArgs {
                 segments: DefaultPruningValues::get_global().minimal_prune_modes.clone(),
                 minimum_pruning_distance: config.minimum_pruning_distance,
             }
+        } else {
+            return None;
         }
 
         // Override with any explicitly set prune.* flags.
