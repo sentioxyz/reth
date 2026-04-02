@@ -229,6 +229,8 @@ impl PruningArgs {
                 block_interval: config.block_interval,
                 segments: DefaultPruningValues::get_global().minimal_prune_modes.clone(),
             }
+        } else {
+            return None;
         }
 
         // Override with any explicitly set prune.* flags.

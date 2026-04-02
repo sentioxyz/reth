@@ -30,6 +30,9 @@ EEST_TESTS_TAG := v4.5.0
 EEST_TESTS_URL := https://github.com/ethereum/execution-spec-tests/releases/download/$(EEST_TESTS_TAG)/fixtures_stable.tar.gz
 EEST_TESTS_DIR := ./testing/ef-tests/execution-spec-tests
 
+# The docker image name
+DOCKER_IMAGE_NAME ?= ghcr.io/sentioxyz/reth
+
 ##@ Help
 
 .PHONY: help
