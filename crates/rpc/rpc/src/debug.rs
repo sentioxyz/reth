@@ -12,6 +12,7 @@ use alloy_rpc_types_eth::{
 use alloy_rpc_types_trace::geth::{
     BlockTraceResult, GethDebugTracingCallOptions, GethDebugTracingOptions, GethTrace, TraceResult,
 };
+use alloy_evm::overrides::apply_state_overrides;
 use async_trait::async_trait;
 use futures::Stream;
 use jsonrpsee::core::RpcResult;
@@ -177,12 +178,13 @@ where
             .map_err(BlockError::RlpDecodeRawBlock)
             .map_err(Eth::Error::from_eth_err)?;
 
-        let evm_env = self
+        let mut evm_env = self
             .eth_api()
             .evm_config()
             .evm_env(block.header())
             .map_err(RethError::other)
             .map_err(Eth::Error::from_eth_err)?;
+        evm_env.cfg_env.sentio_config = opts.sentio_config.clone();
 
         // Depending on EIP-2 we need to recover the transactions differently
         let senders =
@@ -207,7 +209,8 @@ where
             .recovered_block(block_id)
             .await?
             .ok_or(EthApiError::HeaderNotFound(block_id))?;
-        let evm_env = self.eth_api().evm_env_for_header(block.sealed_block().sealed_header())?;
+        let mut evm_env = self.eth_api().evm_env_for_header(block.sealed_block().sealed_header())?;
+        evm_env.cfg_env.sentio_config = opts.sentio_config.clone();
 
         self.trace_block(block, evm_env, opts).await
     }
@@ -218,13 +221,14 @@ where
     pub async fn debug_trace_transaction(
         &self,
         tx_hash: B256,
-        opts: GethDebugTracingOptions,
+        opts: GethDebugTracingCallOptions,
     ) -> Result<GethTrace, Eth::Error> {
         let (transaction, block) = match self.eth_api().transaction_and_block(tx_hash).await? {
             None => return Err(EthApiError::TransactionNotFound.into()),
             Some(res) => res,
         };
-        let evm_env = self.eth_api().evm_env_for_header(block.sealed_block().sealed_header())?;
+        let mut evm_env = self.eth_api().evm_env_for_header(block.sealed_block().sealed_header())?;
+        evm_env.cfg_env.sentio_config = opts.tracing_options.sentio_config.clone();
 
         // we need to get the state of the parent block because we're essentially replaying the
         // block the transaction is included in
@@ -250,7 +254,13 @@ where
 
                 let tx_env = eth_api.evm_config().tx_env(&tx);
 
-                let mut inspector = DebugInspector::new(opts).map_err(Eth::Error::from_eth_err)?;
+                // Apply state overrides if provided
+                if let Some(state_overrides) = opts.state_overrides {
+                    apply_state_overrides(state_overrides, &mut db)
+                        .map_err(Eth::Error::from_eth_err)?;
+                }
+
+                let mut inspector = DebugInspector::new(opts.tracing_options).map_err(Eth::Error::from_eth_err)?;
                 let res =
                     eth_api.inspect(&mut db, evm_env.clone(), tx_env.clone(), &mut inspector)?;
                 let trace = inspector
@@ -305,7 +315,8 @@ where
 
         let this = self.clone();
         self.eth_api()
-            .spawn_with_call_at(call, at, overrides, move |db, evm_env, tx_env| {
+            .spawn_with_call_at(call, at, overrides, move |db, mut evm_env, tx_env| {
+                evm_env.cfg_env.sentio_config = tracing_options.sentio_config.clone();
                 let mut inspector =
                     DebugInspector::new(tracing_options).map_err(Eth::Error::from_eth_err)?;
                 let res = this.eth_api().inspect(
@@ -369,8 +380,9 @@ where
                 )?;
 
                 // 3. now execute the trace call on this state
-                let (evm_env, tx_env) =
+                let (mut evm_env, tx_env) =
                     eth_api.prepare_call_env(evm_env, call, &mut db, overrides)?;
+                evm_env.cfg_env.sentio_config = tracing_options.sentio_config.clone();
 
                 let mut inspector =
                     DebugInspector::new(tracing_options).map_err(Eth::Error::from_eth_err)?;
@@ -465,8 +477,9 @@ where
                         let state_overrides = state_overrides.take();
                         let overrides = EvmOverrides::new(state_overrides, block_overrides.clone());
 
-                        let (evm_env, tx_env) =
+                        let (mut evm_env, tx_env) =
                             eth_api.prepare_call_env(evm_env.clone(), tx, &mut db, overrides)?;
+                        evm_env.cfg_env.sentio_config = tracing_options.sentio_config.clone();
 
                         let res = eth_api.inspect(
                             &mut db,
@@ -906,7 +919,7 @@ where
     async fn debug_trace_transaction(
         &self,
         tx_hash: B256,
-        opts: Option<GethDebugTracingOptions>,
+        opts: Option<GethDebugTracingCallOptions>,
     ) -> RpcResult<GethTrace> {
         let _permit = self.acquire_trace_permit().await;
         Self::debug_trace_transaction(self, tx_hash, opts.unwrap_or_default())
