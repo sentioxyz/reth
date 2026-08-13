@@ -89,7 +89,9 @@ default = [
     "otlp-logs",
     "reth-revm/portable",
     "js-tracer",
-    "jit",
+    # jit (revmc) disabled: revmc's compile-time `offset_of!(EvmContext, spec_id)`
+    # assertion is incompatible with the sentio-modified revm layout (added
+    # `sentio_config` field). JIT is experimental/opt-in and unused by sentio nodes.
     "keccak-cache-global",
     "asm-keccak",
     "gmp",
