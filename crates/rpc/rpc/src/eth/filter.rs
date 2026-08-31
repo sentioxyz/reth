@@ -501,13 +501,6 @@ where
                     .transpose()?
                     .flatten();
 
-                if let Some(f) = from &&
-                    f > info.best_number
-                {
-                    // start block higher than local head, can return empty
-                    return Ok(Vec::new());
-                }
-
                 let (from_block_number, to_block_number) =
                     logs_utils::get_filter_block_range(from, to, start_block, info)?;
 
@@ -849,6 +842,9 @@ pub enum EthFilterError {
     /// Invalid block range.
     #[error("invalid block range params")]
     InvalidBlockRangeParams,
+    /// Block range extends beyond current head.
+    #[error("block range extends beyond current head block")]
+    BlockRangeExceedsHead,
     /// Query scope is too broad.
     #[error("query exceeds max block range {0}")]
     QueryExceedsMaxBlocks(u64),
@@ -882,6 +878,7 @@ impl From<EthFilterError> for jsonrpsee::types::error::ErrorObject<'static> {
             }
             EthFilterError::EthAPIError(err) => err.into(),
             err @ (EthFilterError::InvalidBlockRangeParams |
+            EthFilterError::BlockRangeExceedsHead |
             EthFilterError::QueryExceedsMaxBlocks(_) |
             EthFilterError::QueryExceedsMaxResults { .. }) => {
                 rpc_error_with_code(jsonrpsee::types::error::INVALID_PARAMS_CODE, err.to_string())
@@ -1215,6 +1212,7 @@ impl<
 mod tests {
     use super::*;
     use crate::{eth::EthApi, EthApiBuilder};
+    use alloy_eips::BlockNumberOrTag;
     use alloy_network::Ethereum;
     use alloy_primitives::FixedBytes;
     use rand::Rng;
@@ -1268,6 +1266,23 @@ mod tests {
             EthEvmConfig::new(provider.chain_spec()),
         )
         .build()
+    }
+
+    #[tokio::test]
+    async fn test_logs_for_filter_from_block_beyond_head() {
+        let provider = MockEthProvider::default();
+        provider.add_header(FixedBytes::random(), alloy_consensus::Header::default());
+        let eth_api = build_test_eth_api(provider);
+
+        let eth_filter = super::EthFilter::new(
+            eth_api,
+            EthFilterConfig::default(),
+            Box::new(TokioTaskExecutor::default()),
+        );
+
+        let filter = Filter::new().from_block(100u64).to_block(BlockNumberOrTag::Latest);
+        let result = eth_filter.inner.clone().logs_for_filter(filter, QueryLimits::default()).await;
+        assert!(matches!(result, Err(EthFilterError::InvalidBlockRangeParams)), "{result:?}");
     }
 
     #[tokio::test]
