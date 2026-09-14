@@ -143,6 +143,7 @@ members = [
     "examples/node-event-hooks/",
     "examples/polygon-p2p/",
     "examples/rpc-db/",
+    "examples/sentio-tracer/",
     "examples/txpool-tracing/",
     "examples/custom-beacon-withdrawals",
     "testing/ef-tests/",
@@ -694,3 +695,57 @@ vergen-git2 = "10.0.1"
 
 # networking
 ipnet = "2.11"
+
+[patch.crates-io]
+# alloy crates
+alloy-consensus = { git = "https://github.com/sentioxyz/alloy", branch = "release/v2.3.0" }
+alloy-consensus-any = { git = "https://github.com/sentioxyz/alloy", branch = "release/v2.3.0" }
+alloy-contract = { git = "https://github.com/sentioxyz/alloy", branch = "release/v2.3.0" }
+alloy-eips = { git = "https://github.com/sentioxyz/alloy", branch = "release/v2.3.0" }
+alloy-genesis = { git = "https://github.com/sentioxyz/alloy", branch = "release/v2.3.0" }
+alloy-json-rpc = { git = "https://github.com/sentioxyz/alloy", branch = "release/v2.3.0" }
+alloy-network = { git = "https://github.com/sentioxyz/alloy", branch = "release/v2.3.0" }
+alloy-network-primitives = { git = "https://github.com/sentioxyz/alloy", branch = "release/v2.3.0" }
+alloy-node-bindings = { git = "https://github.com/sentioxyz/alloy", branch = "release/v2.3.0" }
+alloy-provider = { git = "https://github.com/sentioxyz/alloy", branch = "release/v2.3.0" }
+alloy-pubsub = { git = "https://github.com/sentioxyz/alloy", branch = "release/v2.3.0" }
+alloy-rpc-client = { git = "https://github.com/sentioxyz/alloy", branch = "release/v2.3.0" }
+alloy-rpc-types = { git = "https://github.com/sentioxyz/alloy", branch = "release/v2.3.0" }
+alloy-rpc-types-admin = { git = "https://github.com/sentioxyz/alloy", branch = "release/v2.3.0" }
+alloy-rpc-types-anvil = { git = "https://github.com/sentioxyz/alloy", branch = "release/v2.3.0" }
+alloy-rpc-types-any = { git = "https://github.com/sentioxyz/alloy", branch = "release/v2.3.0" }
+alloy-rpc-types-beacon = { git = "https://github.com/sentioxyz/alloy", branch = "release/v2.3.0" }
+alloy-rpc-types-debug = { git = "https://github.com/sentioxyz/alloy", branch = "release/v2.3.0" }
+alloy-rpc-types-engine = { git = "https://github.com/sentioxyz/alloy", branch = "release/v2.3.0" }
+alloy-rpc-types-eth = { git = "https://github.com/sentioxyz/alloy", branch = "release/v2.3.0" }
+alloy-rpc-types-mev = { git = "https://github.com/sentioxyz/alloy", branch = "release/v2.3.0" }
+alloy-rpc-types-trace = { git = "https://github.com/sentioxyz/alloy", branch = "release/v2.3.0" }
+alloy-rpc-types-txpool = { git = "https://github.com/sentioxyz/alloy", branch = "release/v2.3.0" }
+alloy-serde = { git = "https://github.com/sentioxyz/alloy", branch = "release/v2.3.0" }
+alloy-signer = { git = "https://github.com/sentioxyz/alloy", branch = "release/v2.3.0" }
+alloy-signer-local = { git = "https://github.com/sentioxyz/alloy", branch = "release/v2.3.0" }
+alloy-transport = { git = "https://github.com/sentioxyz/alloy", branch = "release/v2.3.0" }
+alloy-transport-http = { git = "https://github.com/sentioxyz/alloy", branch = "release/v2.3.0" }
+alloy-transport-ipc = { git = "https://github.com/sentioxyz/alloy", branch = "release/v2.3.0" }
+alloy-transport-ws = { git = "https://github.com/sentioxyz/alloy", branch = "release/v2.3.0" }
+alloy-tx-macros = { git = "https://github.com/sentioxyz/alloy", branch = "release/v2.3.0" }
+
+# revm-inspectors
+revm-inspectors = { git = "https://github.com/sentioxyz/revm-inspectors", branch = "release/v0.42.0" }
+
+# revm crates
+revm = { git = "https://github.com/sentioxyz/revm", branch = "release/v115" }
+revm-bytecode = { git = "https://github.com/sentioxyz/revm", branch = "release/v115" }
+revm-context = { git = "https://github.com/sentioxyz/revm", branch = "release/v115" }
+revm-context-interface = { git = "https://github.com/sentioxyz/revm", branch = "release/v115" }
+revm-database = { git = "https://github.com/sentioxyz/revm", branch = "release/v115" }
+revm-database-interface = { git = "https://github.com/sentioxyz/revm", branch = "release/v115" }
+revm-handler = { git = "https://github.com/sentioxyz/revm", branch = "release/v115" }
+revm-inspector = { git = "https://github.com/sentioxyz/revm", branch = "release/v115" }
+revm-interpreter = { git = "https://github.com/sentioxyz/revm", branch = "release/v115" }
+revm-precompile = { git = "https://github.com/sentioxyz/revm", branch = "release/v115" }
+revm-primitives = { git = "https://github.com/sentioxyz/revm", branch = "release/v115" }
+revm-state = { git = "https://github.com/sentioxyz/revm", branch = "release/v115" }
+
+# alloy-evm
+alloy-evm = { git = "https://github.com/sentioxyz/alloy-evm", branch = "release/v0.38.0" }
