@@ -31,6 +31,15 @@ ENV RUSTFLAGS="$RUSTFLAGS"
 ARG FEATURES=""
 ENV FEATURES=$FEATURES
 
+# Git info for vergen (since .git is excluded from the Docker context, and the
+# submodule .git pointer is unresolvable in-container). Passed by docker-bake.hcl.
+ARG VERGEN_GIT_SHA=""
+ARG VERGEN_GIT_DESCRIBE=""
+ARG VERGEN_GIT_DIRTY="false"
+ENV VERGEN_GIT_SHA=$VERGEN_GIT_SHA
+ENV VERGEN_GIT_DESCRIBE=$VERGEN_GIT_DESCRIBE
+ENV VERGEN_GIT_DIRTY=$VERGEN_GIT_DIRTY
+
 # Builds dependencies
 RUN cargo chef cook --profile $BUILD_PROFILE --features "$FEATURES" --recipe-path recipe.json
 
@@ -39,7 +48,7 @@ RUN cargo chef cook --profile $BUILD_PROFILE --features "$FEATURES" --recipe-pat
 #
 # TARGETPLATFORM is set by BuildKit: https://docs.docker.com/reference/dockerfile#automatic-platform-args-in-the-global-scope
 ARG TARGETPLATFORM
-COPY --exclude=dist . .
+COPY --exclude=.git --exclude=dist . .
 RUN if [ -n "$RUSTFLAGS" ]; then \
         export RUSTFLAGS="$RUSTFLAGS"; \
     elif [ "$TARGETPLATFORM" = "linux/amd64" ]; then \

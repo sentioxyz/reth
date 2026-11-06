@@ -14,7 +14,7 @@ use alloy_rpc_types_trace::geth::{
 };
 use async_trait::async_trait;
 use evm2::evm::StateChangeSource;
-use evm2_inspectors::tracing::{DebugInspector, TransactionContext};
+use evm2_inspectors::tracing::TransactionContext;
 use futures::Stream;
 use jsonrpsee::{core::RpcResult, PendingSubscriptionSink, SubscriptionMessage};
 use parking_lot::RwLock;
@@ -34,7 +34,7 @@ use reth_rpc_eth_api::{
     helpers::{EthTransactions, TraceExt},
     AsEthApiError, FromEthApiError, FromEvmError, RpcConvert, RpcNodeCore,
 };
-use reth_rpc_eth_types::{EthApiError, StateCacheDb};
+use reth_rpc_eth_types::{cache::db::apply_state_overrides, EthApiError, StateCacheDb};
 use reth_rpc_server_types::{result::internal_rpc_err, ToRpcResult};
 use reth_storage_api::{
     BlockIdReader, BlockReaderIdExt, HashedPostStateProvider, HeaderProvider, ProviderBlock,
@@ -52,12 +52,25 @@ use std::{collections::VecDeque, sync::Arc};
 use tokio::sync::{AcquireError, OwnedSemaphorePermit};
 use tokio_stream::StreamExt;
 
+mod sentio;
+use sentio::DebugInspector;
+
 #[cfg(feature = "js-tracer")]
 use alloy_rpc_types_trace::geth::GethDebugTracerType;
 #[cfg(feature = "js-tracer")]
 use evm2_inspectors::tracing::js::JsInspectorInterrupt;
 #[cfg(feature = "js-tracer")]
 use std::time::Duration;
+
+fn apply_sentio_config<E: EvmEnv>(
+    evm_env: &mut E,
+    config: &alloy_rpc_types_trace::geth::SentioDebugTracingOptions,
+) {
+    if config.ignore_code_size_limit() {
+        evm_env.version_mut().max_code_size = usize::MAX;
+        evm_env.version_mut().max_initcode_size = usize::MAX;
+    }
+}
 
 /// `debug` API implementation.
 ///
@@ -125,7 +138,7 @@ where
     async fn trace_block(
         &self,
         block: Arc<RecoveredBlock<ProviderBlock<Eth::Provider>>>,
-        evm_env: EvmEnvFor<Eth::Evm>,
+        mut evm_env: EvmEnvFor<Eth::Evm>,
         opts: GethDebugTracingOptions,
     ) -> Result<Vec<TraceResult>, Eth::Error> {
         self.eth_api()
@@ -134,6 +147,7 @@ where
 
                 eth_api.apply_pre_execution_changes(&block, &mut db)?;
 
+                apply_sentio_config(&mut evm_env, &opts.sentio_config);
                 let block_env = *evm_env.block_env();
 
                 let mut transactions = block.transactions_recovered().enumerate().peekable();
@@ -184,7 +198,8 @@ where
         block: Arc<RecoveredBlock<ProviderBlock<Eth::Provider>>>,
         opts: GethDebugTracingOptions,
     ) -> Result<Vec<Option<TraceResult>>, Eth::Error> {
-        let evm_env = self.eth_api().evm_env_for_header(block.sealed_block().sealed_header())?;
+        let mut evm_env =
+            self.eth_api().evm_env_for_header(block.sealed_block().sealed_header())?;
 
         self.eth_api()
             .spawn_with_state_at_block(block.parent_hash(), move |eth_api, mut db| {
@@ -193,6 +208,7 @@ where
 
                 eth_api.apply_pre_execution_changes(&block, &mut db)?;
 
+                apply_sentio_config(&mut evm_env, &opts.sentio_config);
                 let block_env = *evm_env.block_env();
                 let mut transactions = block.transactions_recovered().enumerate().peekable();
                 let mut inspector = match DebugInspector::new(opts) {
@@ -326,7 +342,7 @@ where
     pub async fn debug_trace_transaction(
         &self,
         tx_hash: B256,
-        opts: GethDebugTracingOptions,
+        opts: GethDebugTracingCallOptions,
     ) -> Result<GethTrace, Eth::Error> {
         let (transaction, block, bal) =
             match self.eth_api().transaction_and_block_and_maybe_bal(tx_hash).await? {
@@ -334,7 +350,7 @@ where
                 Some(res) => res,
             };
 
-        let interrupt = JsTraceInterrupt::new(&opts)?;
+        let interrupt = JsTraceInterrupt::new(&opts.tracing_options)?;
         let tracer_interrupt = interrupt.clone();
         let trace = self.eth_api().spawn_with_state_at_block(
             block.parent_hash(),
@@ -349,17 +365,25 @@ where
                     tx_info.index.expect("transaction_and_block only returns block transactions")
                         as usize;
 
-                let inspector = tracer_interrupt
-                    .attach(DebugInspector::new(opts).map_err(Eth::Error::from_eth_err)?);
+                // Overrides apply after replaying preceding transactions, so an attached BAL
+                // cannot be used when state overrides are present.
+                let bal = bal.filter(|_| opts.state_overrides.is_none());
+                eth_api.replay_block_until(&mut db, &block, index, bal.as_deref())?;
+                if let Some(state_overrides) = opts.state_overrides {
+                    apply_state_overrides(state_overrides, &mut db)
+                        .map_err(EthApiError::from_state_overrides_err)
+                        .map_err(Eth::Error::from_eth_err)?;
+                }
+
                 let tx_env = eth_api.evm_config().tx_env(tx);
-                let (mut inspector, res, evm_env) = eth_api.inspect_transaction_in_block(
-                    &block,
-                    &mut db,
-                    inspector,
-                    index,
-                    &tx_env,
-                    bal.as_deref(),
-                )?;
+                let mut evm_env =
+                    eth_api.evm_env_for_header(block.sealed_block().sealed_header())?;
+                apply_sentio_config(&mut evm_env, &opts.tracing_options.sentio_config);
+                let inspector = tracer_interrupt.attach(
+                    DebugInspector::new(opts.tracing_options).map_err(Eth::Error::from_eth_err)?,
+                );
+                let (mut inspector, res) =
+                    eth_api.inspect(&mut db, evm_env.clone(), &tx_env, inspector)?;
                 let trace = inspector
                     .get_result(
                         Some(TransactionContext {
@@ -414,8 +438,12 @@ where
         let interrupt = JsTraceInterrupt::new(&tracing_options)?;
         let tracer_interrupt = interrupt.clone();
         let this = self.clone();
-        let trace =
-            self.eth_api().spawn_with_call_at(call, at, overrides, move |db, evm_env, tx_env| {
+        let trace = self.eth_api().spawn_with_call_at(
+            call,
+            at,
+            overrides,
+            move |db, mut evm_env, tx_env| {
+                apply_sentio_config(&mut evm_env, &tracing_options.sentio_config);
                 let inspector = tracer_interrupt.attach(
                     DebugInspector::new(tracing_options).map_err(Eth::Error::from_eth_err)?,
                 );
@@ -425,7 +453,8 @@ where
                     .get_result(None, &tx_env, evm_env.block_env(), &res, db)
                     .map_err(Eth::Error::from_eth_err)?;
                 Ok(trace)
-            });
+            },
+        );
         interrupt.run(trace).await.map_err(|err| match err.as_err() {
             Some(EthApiError::HeaderNotFound(id)) if *id == at => {
                 // Unknown blocks use -32000: https://github.com/ethereum/execution-apis/pull/855
@@ -478,8 +507,9 @@ where
                 eth_api.replay_block_until(&mut db, &block, tx_index, bal.as_deref())?;
 
                 // 2. now execute the trace call on this state
-                let (evm_env, tx_env) =
+                let (mut evm_env, tx_env) =
                     eth_api.prepare_call_env(evm_env, call, &mut db, overrides)?;
+                apply_sentio_config(&mut evm_env, &tracing_options.sentio_config);
 
                 let inspector = tracer_interrupt.attach(
                     DebugInspector::new(tracing_options).map_err(Eth::Error::from_eth_err)?,
@@ -573,8 +603,9 @@ where
                         let state_overrides = state_overrides.take();
                         let overrides = EvmOverrides::new(state_overrides, block_overrides.clone());
 
-                        let (evm_env, tx_env) =
+                        let (mut evm_env, tx_env) =
                             eth_api.prepare_call_env(evm_env.clone(), tx, &mut db, overrides)?;
+                        apply_sentio_config(&mut evm_env, &tracing_options.sentio_config);
 
                         let (next_inspector, res) =
                             eth_api.inspect(&mut db, evm_env.clone(), &tx_env, inspector)?;
@@ -1147,7 +1178,7 @@ where
     async fn debug_trace_transaction(
         &self,
         tx_hash: B256,
-        opts: Option<GethDebugTracingOptions>,
+        opts: Option<GethDebugTracingCallOptions>,
     ) -> RpcResult<GethTrace> {
         let _permit = self.acquire_trace_permit().await;
         Self::debug_trace_transaction(self, tx_hash, opts.unwrap_or_default())
@@ -1546,12 +1577,7 @@ impl JsTraceInterrupt {
     fn attach(&self, inspector: DebugInspector) -> DebugInspector {
         #[cfg(feature = "js-tracer")]
         if let Some((interrupt, _)) = &self.js {
-            return match inspector {
-                DebugInspector::Js(js) => {
-                    DebugInspector::Js(Box::new(js.with_interrupt(interrupt.clone())))
-                }
-                inspector => inspector,
-            }
+            return inspector.with_js_interrupt(interrupt.clone())
         }
         inspector
     }
