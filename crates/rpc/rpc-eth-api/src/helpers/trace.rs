@@ -184,18 +184,45 @@ pub trait Trace: LoadState<Error: FromEvmError<Self::Evm>> + Call {
         target_tx_index: usize,
         bal: Option<&DecodedBal<Arc<RevmBal>>>,
     ) -> Result<(ResultAndState<HaltReasonFor<Self::Evm>>, EvmEnvFor<Self::Evm>), Self::Error> {
+        self.inspect_transaction_in_block_with(block, db, inspector, target_tx_index, bal, |_| {
+            Ok(())
+        })
+    }
+
+    /// Inspects a transaction after applying target-only overrides to its EVM.
+    ///
+    /// The callback runs after predecessor replay, keeping the same block executor and its
+    /// transaction hooks/cursor. Callers changing state must disable cached BAL reads.
+    #[expect(clippy::type_complexity)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "preserves the upstream API with a target-only preparation callback"
+    )]
+    fn inspect_transaction_in_block_with<'a, I>(
+        &self,
+        block: &RecoveredBlock<BlockTy<Self::Primitives>>,
+        db: &'a mut StateCacheDb,
+        inspector: I,
+        target_tx_index: usize,
+        bal: Option<&DecodedBal<Arc<RevmBal>>>,
+        prepare: impl FnOnce(&mut EvmFor<Self::Evm, &'a mut StateCacheDb, I>) -> Result<(), Self::Error>,
+    ) -> Result<(ResultAndState<HaltReasonFor<Self::Evm>>, EvmEnvFor<Self::Evm>), Self::Error>
+    where
+        I: InspectorFor<Self::Evm, &'a mut StateCacheDb>,
+    {
         let Some(target_tx) = block.transactions_recovered().nth(target_tx_index) else {
             return Err(Self::Error::from_eth_err(EthApiError::InvalidParams(format!(
                 "tx_index {target_tx_index} out of bounds for block with {} transactions",
                 block.transaction_count()
             ))))
         };
-        let evm_env = self.evm_env_for_header(block.sealed_block().sealed_header())?;
+        let mut evm_env = self.evm_env_for_header(block.sealed_block().sealed_header())?;
 
         if let Some(bal) = bal {
             // the BAL also covers the block's pre-execution changes
             attach_bal_before_tx(db, bal, target_tx_index);
             let mut evm = self.evm_config().evm_with_env_and_inspector(db, evm_env, inspector);
+            prepare(&mut evm)?;
             let res = evm
                 .transact(self.evm_config().tx_env(target_tx))
                 .map_err(Self::Error::from_evm_err)?;
@@ -210,6 +237,8 @@ pub trait Trace: LoadState<Error: FromEvmError<Self::Evm>> + Call {
             target_tx_index,
         )?;
 
+        prepare(executor.evm_mut())?;
+        evm_env.cfg_env = executor.evm().cfg_env().clone();
         executor.evm_mut().enable_inspector();
         let res = executor
             .execute_transaction_without_commit(target_tx)
